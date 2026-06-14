@@ -34,10 +34,11 @@ var items = []item{
 }
 
 func main() {
+	feUrl := os.Getenv("FE_URL")
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
  	config := cors.DefaultConfig()
-    config.AllowOrigins = []string{"https://ims-buxotihe8-j-projects3-3.vercel.app"}
+    config.AllowOrigins = []string{feUrl}
     config.AllowMethods = []string{"POST", "GET", "PUT", "OPTIONS", "DELETE"}
     config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "Accept", "User-Agent", "Cache-Control", "Pragma"}
     config.ExposeHeaders = []string{"Content-Length"}
