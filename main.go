@@ -34,11 +34,11 @@ var items = []item{
 }
 
 func main() {
-	feUrl := os.Getenv("FE_URL")
+	// feUrl := os.Getenv("FE_URL")
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
  	config := cors.DefaultConfig()
-    config.AllowOrigins = []string{feUrl}
+    config.AllowOrigins = []string{"*"}
     config.AllowMethods = []string{"POST", "GET", "PUT", "OPTIONS", "DELETE"}
     config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "Accept", "User-Agent", "Cache-Control", "Pragma"}
     config.ExposeHeaders = []string{"Content-Length"}
