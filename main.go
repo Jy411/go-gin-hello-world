@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/bytedance/gopkg/util/logger"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -34,6 +36,14 @@ var items = []item{
 func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+ 	config := cors.DefaultConfig()
+    config.AllowOrigins = []string{"https://ims-buxotihe8-j-projects3-3.vercel.app"}
+    config.AllowMethods = []string{"POST", "GET", "PUT", "OPTIONS", "DELETE"}
+    config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "Accept", "User-Agent", "Cache-Control", "Pragma"}
+    config.ExposeHeaders = []string{"Content-Length"}
+    config.AllowCredentials = true
+    config.MaxAge = 12 * time.Hour
+
 
 	// Serve embedded static files
 	// Strip "public" prefix so files are served at root (e.g., /index.html, /favicon.ico)
