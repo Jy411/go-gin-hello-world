@@ -45,6 +45,8 @@ func main() {
     config.AllowCredentials = true
     config.MaxAge = 12 * time.Hour
 
+    // Use CORS middleware
+    r.Use(cors.New(config))
 
 	// Serve embedded static files
 	// Strip "public" prefix so files are served at root (e.g., /index.html, /favicon.ico)
