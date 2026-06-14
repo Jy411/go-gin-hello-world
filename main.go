@@ -38,7 +38,7 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
  	config := cors.DefaultConfig()
-    config.AllowOrigins = []string{"*"}
+    config.AllowOrigins = []string{"https://ims-ui-two.vercel.app/"}
     config.AllowMethods = []string{"POST", "GET", "PUT", "OPTIONS", "DELETE"}
     config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "Accept", "User-Agent", "Cache-Control", "Pragma"}
     config.ExposeHeaders = []string{"Content-Length"}
