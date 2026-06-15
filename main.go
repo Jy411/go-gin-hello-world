@@ -48,6 +48,11 @@ func main() {
     // Use CORS middleware
     r.Use(cors.New(config))
 
+    authorized := r.Group("/admin", gin.BasicAuth(gin.Accounts{
+		"admin": "1234",
+	}))
+
+
 	// Serve embedded static files
 	// Strip "public" prefix so files are served at root (e.g., /index.html, /favicon.ico)
 	publicFS, _ := fs.Sub(staticFiles, "public")
@@ -74,11 +79,11 @@ func main() {
 	})
 
 	// API routes
-	r.GET("/items", getItems)
-	r.GET("/items/:id", getItemByID)
-	r.POST("/items", postItems)
-	r.PUT("/items/:id", updateItemByID)
-	r.DELETE("/items/:id", deleteItemByID)
+	authorized.GET("/items", getItems)
+	authorized.GET("/items/:id", getItemByID)
+	authorized.POST("/items", postItems)
+	authorized.PUT("/items/:id", updateItemByID)
+	authorized.DELETE("/items/:id", deleteItemByID)
 
 	// Get port from environment variable (Vercel sets this)
 	port := os.Getenv("PORT")
