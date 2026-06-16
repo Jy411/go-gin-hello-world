@@ -16,7 +16,6 @@ import (
 	"github.com/bytedance/gopkg/util/logger"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 	"google.golang.org/api/option"
 )
 
@@ -45,12 +44,6 @@ type Handler struct {
 }
 
 func main() {
-	// TODO Remove in prod
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
-
 	// 1. Define background context
 	ctx := context.Background()
 
