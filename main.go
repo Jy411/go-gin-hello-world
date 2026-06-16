@@ -178,6 +178,14 @@ func (h *Handler) postItems(c *gin.Context) {
     }
     newItem.ID = strconv.Itoa(latestID + 1)
 
+    // check if item name already exists
+    for _, a := range items {
+        if a.Name == newItem.Name {
+            c.IndentedJSON(http.StatusConflict, gin.H{"message": "item name already exists"})
+            return
+        }
+    }
+
     // Add the new album to the slice.
     items = append(items, newItem)
     c.IndentedJSON(http.StatusCreated, newItem)
