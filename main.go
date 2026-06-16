@@ -1,16 +1,23 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"encoding/base64"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
 
+	firebase "firebase.google.com/go/v4"
+	"firebase.google.com/go/v4/auth"
 	"github.com/bytedance/gopkg/util/logger"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+	"google.golang.org/api/option"
 )
 
 // Embed static files at compile time
@@ -33,9 +40,46 @@ var items = []item{
     {ID: "3", Name: "Salmon", Description: "Fish", Quantity: 3, Price: 16},
 }
 
+type Handler struct {
+	AuthClient *auth.Client
+}
+
 func main() {
+	// TODO Remove in prod
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	// 1. Define background context
+	ctx := context.Background()
+
+	// 2. Load the Firebase service account credential file
+	decodedBytes, err := base64.StdEncoding.DecodeString(os.Getenv("FIREBASE_KEY"))
+		if err != nil {
+			log.Fatalf("Decoding failed: %v", err)
+		}
+
+	opt := option.WithCredentialsJSON([]byte(decodedBytes))
+
+	// 3. Initialize the Firebase App
+	app, err := firebase.NewApp(ctx, nil, opt)
+	if err != nil {
+		log.Fatalf("error initializing firebase app: %v\n", err)
+	}
+
+	// 4. Connect to the Firebase Auth client instance
+	authClient, err := app.Auth(ctx)
+	if err != nil {
+		log.Fatalf("error getting firebase auth client: %v\n", err)
+	}
+
+	log.Println("Successfully connected to Firebase Auth instance!", authClient)
+
+	handler := &Handler{AuthClient: authClient}
+
 	// feUrl := os.Getenv("FE_URL")
-	gin.SetMode(gin.ReleaseMode)
+	// gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
  	config := cors.DefaultConfig()
     config.AllowOrigins = []string{"https://ims-ui-two.vercel.app"}
@@ -47,11 +91,6 @@ func main() {
 
     // Use CORS middleware
     r.Use(cors.New(config))
-
-    authorized := r.Group("/admin", gin.BasicAuth(gin.Accounts{
-		"admin": "1234",
-	}))
-
 
 	// Serve embedded static files
 	// Strip "public" prefix so files are served at root (e.g., /index.html, /favicon.ico)
@@ -79,11 +118,11 @@ func main() {
 	})
 
 	// API routes
-	authorized.GET("/items", getItems)
-	authorized.GET("/items/:id", getItemByID)
-	authorized.POST("/items", postItems)
-	authorized.PUT("/items/:id", updateItemByID)
-	authorized.DELETE("/items/:id", deleteItemByID)
+	r.GET("/items", handler.getItems)
+	r.GET("/items/:id", handler.getItemByID)
+	r.POST("/items", handler.postItems)
+	r.PUT("/items/:id", handler.updateItemByID)
+	r.DELETE("/items/:id", handler.deleteItemByID)
 
 	// Get port from environment variable (Vercel sets this)
 	port := os.Getenv("PORT")
@@ -94,12 +133,32 @@ func main() {
 	r.Run(":" + port)
 }
 
+// authorize by checking firebase auth
+func authFirebase(c *gin.Context, firebaseAuth *auth.Client) bool{
+	token := c.GetHeader("Authorization")
+	if token == "" {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return false
+	}
+	_, err := firebaseAuth.VerifyIDToken(c, token)
+	if err != nil {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
 
-func getItems(c *gin.Context) {
+func (h *Handler) getItems(c *gin.Context) {
+	if !authFirebase(c, h.AuthClient) {
+		return
+	}
     c.IndentedJSON(http.StatusOK, items)
 }
 
-func postItems(c *gin.Context) {
+func (h *Handler) postItems(c *gin.Context) {
+	if !authFirebase(c, h.AuthClient) {
+		return
+	}
     var newItem item
 
     if err := c.BindJSON(&newItem); err != nil {
@@ -124,7 +183,10 @@ func postItems(c *gin.Context) {
     c.IndentedJSON(http.StatusCreated, newItem)
 }
 
-func getItemByID(c *gin.Context) {
+func (h *Handler) getItemByID(c *gin.Context) {
+	if !authFirebase(c, h.AuthClient) {
+		return
+	}
     id := c.Param("id")
 
     // Loop over the list of albums, looking for
@@ -138,7 +200,10 @@ func getItemByID(c *gin.Context) {
     c.IndentedJSON(http.StatusNotFound, gin.H{"message": "item not found"})
 }
 
-func updateItemByID(c *gin.Context) {
+func (h *Handler) updateItemByID(c *gin.Context) {
+	if !authFirebase(c, h.AuthClient) {
+		return
+	}
     id := c.Param("id")
     var updatedItem item
 
@@ -156,7 +221,10 @@ func updateItemByID(c *gin.Context) {
     c.IndentedJSON(http.StatusNotFound, gin.H{"message": "item not found"})
 }
 
-func deleteItemByID(c *gin.Context) {
+func (h *Handler) deleteItemByID(c *gin.Context) {
+	if !authFirebase(c, h.AuthClient) {
+		return
+	}
     id := c.Param("id")
 
     for i, a := range items {
