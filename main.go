@@ -16,6 +16,7 @@ import (
 	"github.com/bytedance/gopkg/util/logger"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/api/option"
 )
 
@@ -26,42 +27,40 @@ var staticFiles embed.FS
 
 type item struct {
 	ID     string  `json:"id"`
-    Name   string  `json:"name"`
-    Description  string  `json:"description"`
-    Quantity float64  `json:"quantity"`
-    Price  float64 `json:"price"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Price       float64 `json:"price"`
+	Quantity    float64 `json:"quantity"`
 }
 
 // seed item data.
 var items = []item{
-    {ID: "1", Name: "Banana", Description: "Fruit", Quantity: 1, Price: 2},
-    {ID: "2", Name: "Cheesecake", Description: "Pastry", Quantity: 4, Price: 8},
-    {ID: "3", Name: "Salmon", Description: "Fish", Quantity: 3, Price: 16},
 }
 
 type Handler struct {
 	AuthClient *auth.Client
+	DbClient   *pgx.Conn
 }
 
 func main() {
-	// 1. Define background context
 	ctx := context.Background()
 
-	// 2. Load the Firebase service account credential file
+	// Connect to DB - supabase
+	conn, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatalf("Failed to connect to the database: %v", err)
+	}
+	defer conn.Close(ctx)
+
 	decodedBytes, err := base64.StdEncoding.DecodeString(os.Getenv("FIREBASE_KEY"))
 		if err != nil {
 			log.Fatalf("Decoding failed: %v", err)
 		}
-
 	opt := option.WithCredentialsJSON([]byte(decodedBytes))
-
-	// 3. Initialize the Firebase App
 	app, err := firebase.NewApp(ctx, nil, opt)
 	if err != nil {
 		log.Fatalf("error initializing firebase app: %v\n", err)
 	}
-
-	// 4. Connect to the Firebase Auth client instance
 	authClient, err := app.Auth(ctx)
 	if err != nil {
 		log.Fatalf("error getting firebase auth client: %v\n", err)
@@ -69,7 +68,7 @@ func main() {
 
 	log.Println("Successfully connected to Firebase Auth instance!", authClient)
 
-	handler := &Handler{AuthClient: authClient}
+	handler := &Handler{AuthClient: authClient, DbClient: conn}
 
 	// feUrl := os.Getenv("FE_URL")
 	// gin.SetMode(gin.ReleaseMode)
@@ -145,6 +144,32 @@ func (h *Handler) getItems(c *gin.Context) {
 	if !authFirebase(c, h.AuthClient) {
 		return
 	}
+
+	// query the database for items
+	rows, err := h.DbClient.Query(c, "SELECT * FROM items")
+	if err != nil {
+		logger.Error(err)
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var items []item
+	for rows.Next() {
+		var item item
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Quantity); err != nil {
+			logger.Error(err)
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		logger.Error(err)
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
     c.IndentedJSON(http.StatusOK, items)
 }
 
@@ -160,34 +185,20 @@ func (h *Handler) postItems(c *gin.Context) {
         return
     }
 
-    // check if item ID already exists
-    for _, a := range items {
-        if a.ID == newItem.ID {
-            c.IndentedJSON(http.StatusConflict, gin.H{"message": "item id already exists"})
-            return
-        }
-    }
-
-    // get the latest available id by finding the highest existing id
-    latestID := 0
-    for _, a := range items {
-        id, _ := strconv.Atoi(a.ID)
-        if id > latestID {
-            latestID = id
-        }
+    // query database for latest id and assign id
+    var latestID int
+    if err := h.DbClient.QueryRow(c, "SELECT MAX(id) FROM items").Scan(&latestID); err != nil {
+        logger.Error(err)
+        return
     }
     newItem.ID = strconv.Itoa(latestID + 1)
 
-    // check if item name already exists
-    for _, a := range items {
-        if a.Name == newItem.Name {
-            c.IndentedJSON(http.StatusConflict, gin.H{"message": "item name already exists"})
-            return
-        }
+    // insert new item into database
+    if _, err := h.DbClient.Exec(c, "INSERT INTO items (id, name, description, price, quantity) VALUES ($1, $2, $3, $4, $5)", newItem.ID, newItem.Name, newItem.Description, newItem.Price, newItem.Quantity); err != nil {
+    	c.IndentedJSON(http.StatusConflict, gin.H{"message": err.Error()})
+        return
     }
 
-    // Add the new album to the slice.
-    items = append(items, newItem)
     c.IndentedJSON(http.StatusCreated, newItem)
 }
 
@@ -197,15 +208,14 @@ func (h *Handler) getItemByID(c *gin.Context) {
 	}
     id := c.Param("id")
 
-    // Loop over the list of albums, looking for
-    // an album whose ID value matches the parameter.
-    for _, a := range items {
-        if a.ID == id {
-            c.IndentedJSON(http.StatusOK, a)
-            return
-        }
+    var item item
+    if err := h.DbClient.QueryRow(c, "SELECT * FROM items WHERE id = $1", id).Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Quantity); err != nil {
+    	log.Println(err);
+        c.IndentedJSON(http.StatusNotFound, gin.H{"message": "item not found"})
+        return
     }
-    c.IndentedJSON(http.StatusNotFound, gin.H{"message": "item not found"})
+
+    c.IndentedJSON(http.StatusOK, item)
 }
 
 func (h *Handler) updateItemByID(c *gin.Context) {
@@ -219,14 +229,12 @@ func (h *Handler) updateItemByID(c *gin.Context) {
         return
     }
 
-    for i, a := range items {
-        if a.ID == id {
-            items[i] = updatedItem
-            c.IndentedJSON(http.StatusOK, updatedItem)
-            return
-        }
+    if _, err := h.DbClient.Exec(c, "UPDATE items SET name = $1, description = $2, price = $3, quantity = $4 WHERE id = $5", updatedItem.Name, updatedItem.Description, updatedItem.Price, updatedItem.Quantity, id); err != nil {
+        c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+        return
     }
-    c.IndentedJSON(http.StatusNotFound, gin.H{"message": "item not found"})
+
+    c.IndentedJSON(http.StatusOK, updatedItem)
 }
 
 func (h *Handler) deleteItemByID(c *gin.Context) {
@@ -235,12 +243,11 @@ func (h *Handler) deleteItemByID(c *gin.Context) {
 	}
     id := c.Param("id")
 
-    for i, a := range items {
-        if a.ID == id {
-            items = append(items[:i], items[i+1:]...)
-            c.IndentedJSON(http.StatusOK, gin.H{"message": "item deleted"})
-            return
-        }
+
+    if _, err := h.DbClient.Exec(c, "DELETE FROM items WHERE id = $1", id); err != nil {
+        c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+        return
     }
-    c.IndentedJSON(http.StatusNotFound, gin.H{"message": "item not found"})
+
+    c.IndentedJSON(http.StatusOK, gin.H{"message": "item deleted"})
 }
