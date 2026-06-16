@@ -168,8 +168,15 @@ func (h *Handler) postItems(c *gin.Context) {
         }
     }
 
-    // modify id to the next available id
-    newItem.ID = strconv.Itoa(len(items) + 1)
+    // get the latest available id by finding the highest existing id
+    latestID := 0
+    for _, a := range items {
+        id, _ := strconv.Atoi(a.ID)
+        if id > latestID {
+            latestID = id
+        }
+    }
+    newItem.ID = strconv.Itoa(latestID + 1)
 
     // Add the new album to the slice.
     items = append(items, newItem)
